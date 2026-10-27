@@ -10,7 +10,7 @@ import { createPrintOrder } from "../actions";
 
 interface Props {
   product: { slug: string; name: string; config: ProductConfig };
-  defaults: { name: string; phone: string };
+  defaults: { name: string; phone: string; address: string };
 }
 
 const STEPS = ["Tùy chọn", "Tải file", "Kiểm tra & mockup", "Xác nhận"];
@@ -45,7 +45,7 @@ export function OrderWizard({ product, defaults }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [acceptWarnings, setAcceptWarnings] = useState(false);
 
-  const [contact, setContact] = useState({ name: defaults.name, phone: defaults.phone, deliveryMethod: "PICKUP" as "PICKUP" | "SHIP", address: "", note: "" });
+  const [contact, setContact] = useState({ name: defaults.name, phone: defaults.phone, deliveryMethod: "PICKUP" as "PICKUP" | "SHIP", address: defaults.address, note: "" });
   const [submitting, startSubmit] = useTransition();
 
   async function runCheck(file: { id: string; name: string }) {

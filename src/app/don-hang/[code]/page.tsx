@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import type { FileCheckResult } from "@/lib/filecheck";
 import { PRINT_STATUS_FLOW, PRINT_STATUS_LABEL } from "@/lib/labels";
 import { requireUser } from "@/lib/session";
+import { CancelOrderButton } from "./CancelOrderButton";
 
 export default async function OrderDetailPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ moi?: string }> }) {
   const { code } = await params;
@@ -62,6 +63,7 @@ export default async function OrderDetailPage({ params, searchParams }: { params
         </div>
         <div className="space-y-6">
           <PaymentBox code={order.code} amount={order.price} paidAmount={order.paidAmount} status={order.paymentStatus} />
+          {order.status === "PENDING" && order.userId === user.id && <CancelOrderButton code={order.code} />}
           <div className="card">
             <h2 className="mb-4 font-semibold">Tiến độ</h2>
             <Timeline events={order.history} />

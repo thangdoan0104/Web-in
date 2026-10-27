@@ -58,6 +58,8 @@ model User {
   emailVerified DateTime?
   image         String?
   phone         String?
+  // Địa chỉ giao hàng mặc định, điền sẵn khi đặt in
+  address       String?
   passwordHash  String?
   role          Role      @default(CUSTOMER)
   createdAt     DateTime  @default(now())

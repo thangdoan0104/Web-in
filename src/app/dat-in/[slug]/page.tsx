@@ -9,14 +9,14 @@ export default async function OrderPage({ params }: { params: Promise<{ slug: st
   const user = await requireUser(`/dat-in/${slug}`);
   const product = await db.product.findUnique({ where: { slug } });
   if (!product?.active) notFound();
-  const profile = await db.user.findUnique({ where: { id: user.id }, select: { name: true, phone: true } });
+  const profile = await db.user.findUnique({ where: { id: user.id }, select: { name: true, phone: true, address: true } });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="text-3xl font-bold">Đặt in {product.name.toLowerCase()}</h1>
       <OrderWizard
         product={{ slug: product.slug, name: product.name, config: parseConfig(product.config) }}
-        defaults={{ name: profile?.name ?? "", phone: profile?.phone ?? "" }}
+        defaults={{ name: profile?.name ?? "", phone: profile?.phone ?? "", address: profile?.address ?? "" }}
       />
     </div>
   );
