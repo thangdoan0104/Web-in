@@ -5,6 +5,7 @@ import { CheckList } from "@/components/CheckList";
 import { ProofViewer } from "@/components/ProofViewer";
 import { uploadFile } from "@/components/upload";
 import type { FileCheckResult } from "@/lib/filecheck";
+import { FIT_LABELS, ratioDiff, type FitMode } from "@/lib/placement";
 import { calculatePrice, CUSTOM_SIZE, formatVnd, type OrderOptions, type ProductConfig } from "@/lib/pricing";
 import { createPrintOrder } from "../actions";
 
@@ -48,8 +49,8 @@ export function OrderWizard({ product, defaults }: Props) {
   const [contact, setContact] = useState({ name: defaults.name, phone: defaults.phone, deliveryMethod: "PICKUP" as "PICKUP" | "SHIP", address: defaults.address, note: "" });
   const [submitting, startSubmit] = useTransition();
 
-  async function runCheck(file: { id: string; name: string }) {
-    setBusy("Đang kiểm tra file và dựng mockup...");
+  async function runCheck(file: { id: string; name: string }, fit: FitMode = "cover") {
+    setBusy(fit === "cover" ? "Đang kiểm tra file và dựng mockup..." : "Đang dựng lại mockup...");
     setError(null);
     try {
       const res = await fetch(`/api/files/${file.id}/check`, {
@@ -60,6 +61,7 @@ export function OrderWizard({ product, defaults }: Props) {
           sizeCode: options.sizeCode,
           customWidthMm: options.customWidthMm,
           customHeightMm: options.customHeightMm,
+          fit,
         }),
       });
       const body = await res.json();
@@ -254,7 +256,30 @@ export function OrderWizard({ product, defaults }: Props) {
             <p className="mt-3 text-sm text-gray-500">File: {proof.fileName}</p>
           </div>
           <div className="space-y-4">
-            <CheckList items={proof.check.items} />
+            {ratioDiff(proof.check.info.widthPx ?? proof.check.info.pageWidthMm ?? 1, proof.check.info.heightPx ?? proof.check.info.pageHeightMm ?? 1, proof.check.target).min > 0.01 && (
+              <div className="card space-y-3 !p-4">
+                <p className="text-sm font-semibold">File khác tỷ lệ khổ in. Đặt ảnh thế nào?</p>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(FIT_LABELS) as FitMode[]).map((f) => {
+                    const on = (proof.check.fit ?? "cover") === f;
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={!!busy}
+                        onClick={() => !on && runCheck({ id: proof.fileId, name: proof.fileName }, f)}
+                        className={`rounded-lg border px-4 py-2 text-sm ${on ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-gray-300 bg-white"}`}
+                      >
+                        {FIT_LABELS[f]}
+                      </button>
+                    );
+                  })}
+                </div>
+                {busy && <p className="text-sm text-gray-500">{busy}</p>}
+              </div>
+            )}
+            <CheckList key={proof.check.fit} items={proof.check.items} />
             <p className="rounded-lg bg-white p-4 text-sm text-gray-600 ring-1 ring-gray-200">
               Sau khi bạn đặt in, nhân viên chế bản sẽ kiểm tra lại file một lần nữa và báo bạn ngay nếu phát hiện vấn đề khác.
             </p>

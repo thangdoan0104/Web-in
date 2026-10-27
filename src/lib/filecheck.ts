@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
+import { formatCm, placement, ratioDiff, type FitMode, type PlacementTarget } from "./placement";
 
 const run = promisify(execFile);
 
@@ -19,6 +20,7 @@ export interface CheckItem {
 export interface FileCheckResult {
   items: CheckItem[];
   worst: CheckStatus;
+  fit: FitMode;
   info: {
     format: "image" | "pdf";
     widthPx?: number;
@@ -28,14 +30,13 @@ export interface FileCheckResult {
     pages: number;
     colorSpace: string;
     effectiveDpi: number | null;
+    // dpi ghi trong file (Photoshop...), chỉ để giải thích cho khách
+    metaDpi?: number | null;
   };
-  target: { widthMm: number; heightMm: number; bleedMm: number };
+  target: PlacementTarget;
 }
 
-export interface CheckTarget {
-  widthMm: number;
-  heightMm: number;
-  bleedMm: number;
+export interface CheckTarget extends PlacementTarget {
   dpi: { recommended: number; minimum: number };
 }
 
@@ -81,53 +82,27 @@ function parseTable(output: string): Record<string, string>[] {
 }
 
 // Chọn hướng (dọc/ngang) của khổ in sao cho khớp với hướng của file
-function orientTarget(fileW: number, fileH: number, t: CheckTarget) {
-  const fileLandscape = fileW > fileH;
-  const targetLandscape = t.widthMm > t.heightMm;
-  const rotated = fileLandscape !== targetLandscape && t.widthMm !== t.heightMm;
-  const w = rotated ? t.heightMm : t.widthMm;
-  const h = rotated ? t.widthMm : t.heightMm;
-  return { w, h, rotated };
-}
-
-function checkSize(fileW: number, fileH: number, t: CheckTarget): CheckItem[] {
-  const { w, h, rotated } = orientTarget(fileW, fileH, t);
-  const ratio = fileW / fileH;
-  const diffTrim = Math.abs(ratio / (w / h) - 1);
-  const bw = w + 2 * t.bleedMm;
-  const bh = h + 2 * t.bleedMm;
-  const diffBleed = Math.abs(ratio / (bw / bh) - 1);
-  const diff = Math.min(diffTrim, diffBleed);
+function checkSize(fileW: number, fileH: number, t: CheckTarget, fit: FitMode): CheckItem[] {
+  const p = placement(fileW, fileH, t, fit);
+  const diff = ratioDiff(fileW, fileH, t);
+  const sizeText = `${formatCm(p.w)} x ${formatCm(p.h)} cm`;
+  const turned = p.rotated ? ` Tờ rơi được in theo hướng ${fileW > fileH ? "ngang" : "dọc"} như file.` : "";
   const items: CheckItem[] = [];
-  const sizeText = `${t.widthMm / 10} x ${t.heightMm / 10} cm`;
 
-  if (rotated) {
-    items.push({
-      key: "size",
-      label: "Kích thước & tỷ lệ",
-      status: "warn",
-      message: `File đang theo hướng ${fileW > fileH ? "ngang" : "dọc"}, khác với khổ ${sizeText} bạn chọn. Hãy kiểm tra lại hướng trên mockup.`,
-    });
-  } else if (diff <= 0.01) {
-    items.push({ key: "size", label: "Kích thước & tỷ lệ", status: "pass", message: `Tỷ lệ file khớp với khổ ${sizeText}.` });
-  } else if (diff <= 0.05) {
-    items.push({
-      key: "size",
-      label: "Kích thước & tỷ lệ",
-      status: "warn",
-      message: `Tỷ lệ file lệch ${(diff * 100).toFixed(1)}% so với khổ ${sizeText}. File sẽ được co giãn hoặc cắt bớt mép, xem phần bị cắt ở chế độ 2D.`,
-    });
+  if (diff.min <= 0.01) {
+    items.push({ key: "size", label: "Kích thước & tỷ lệ", status: "pass", message: `Tỷ lệ file khớp với khổ ${sizeText}.${turned}` });
   } else {
-    items.push({
-      key: "size",
-      label: "Kích thước & tỷ lệ",
-      status: "fail",
-      message: `Tỷ lệ file lệch ${(diff * 100).toFixed(0)}% so với khổ ${sizeText}. Nội dung sẽ bị méo hoặc mất nhiều, nên làm lại file đúng khổ.`,
-    });
+    // File khác tỷ lệ: không đổi hình sản phẩm, mà phóng file cho kín khổ (cắt mép) hoặc giữ trọn file (thêm nền trắng)
+    const wide = fileW / fileH > p.frameW / p.frameH;
+    const message =
+      fit === "contain"
+        ? `File khác tỷ lệ khổ ${sizeText}. Giữ trọn file thì khổ in có dải nền trắng khoảng ${formatCm(((wide ? p.frameH - p.imageH : p.frameW - p.imageW)) / 2)} cm ở ${wide ? "mép trên và mép dưới" : "mép trái và mép phải"}.`
+        : `File khác tỷ lệ khổ ${sizeText}. File được phóng cho kín khổ, phần dư khoảng ${formatCm(((wide ? p.imageW - p.frameW : p.imageH - p.frameH)) / 2)} cm ở ${wide ? "mép trái và mép phải" : "mép trên và mép dưới"} sẽ bị cắt.`;
+    items.push({ key: "size", label: "Kích thước & tỷ lệ", status: "warn", message: `${message}${turned} Xem chế độ 2D để thấy rõ, hoặc đổi cách đặt ảnh.` });
   }
 
-  if (t.bleedMm > 0 && diff <= 0.05) {
-    const hasBleed = diffBleed < diffTrim;
+  if (t.bleedMm > 0 && diff.min <= 0.05) {
+    const hasBleed = diff.bleed < diff.trim;
     items.push(
       hasBleed
         ? { key: "bleed", label: "Lề xén (bleed)", status: "pass", message: `File đã có lề xén ${t.bleedMm} mm mỗi cạnh.` }
@@ -140,6 +115,30 @@ function checkSize(fileW: number, fileH: number, t: CheckTarget): CheckItem[] {
     );
   }
   return items;
+}
+
+// Độ phân giải thật khi in = số điểm ảnh / kích thước in ra; con số dpi ghi trong file không quyết định độ nét
+function imageResolutionItem(widthPx: number, heightPx: number, metaDpi: number | null, t: CheckTarget, fit: FitMode) {
+  const p = placement(widthPx, heightPx, t, fit);
+  const dpi = MM_PER_INCH / p.k;
+  const item = resolutionItem(dpi, t);
+  const value = Math.round(dpi);
+  const sizeText = `${formatCm(p.w)} x ${formatCm(p.h)} cm`;
+  if (item.status === "pass") {
+    item.message = `Ảnh ${widthPx} x ${heightPx} px, in ở khổ ${sizeText} đạt khoảng ${value} dpi, đủ sắc nét.`;
+  } else {
+    const rec = t.dpi.recommended;
+    const needW = Math.ceil((p.frameW / MM_PER_INCH) * rec).toLocaleString("vi-VN");
+    const needH = Math.ceil((p.frameH / MM_PER_INCH) * rec).toLocaleString("vi-VN");
+    const meta =
+      metaDpi && Math.abs(metaDpi - value) > value * 0.1
+        ? ` File ghi ${metaDpi} dpi, nhưng con số đó chỉ đúng khi in ở khổ ${formatCm((widthPx / metaDpi) * MM_PER_INCH)} x ${formatCm((heightPx / metaDpi) * MM_PER_INCH)} cm.`
+        : "";
+    item.message =
+      `Ảnh ${widthPx} x ${heightPx} px, phóng lên khổ ${sizeText} chỉ còn khoảng ${value} dpi (khuyến nghị ${rec}, tối thiểu ${t.dpi.minimum}).${meta}` +
+      ` Để đạt ${rec} dpi ở khổ này, ảnh cần khoảng ${needW} x ${needH} px. ${item.status === "fail" ? "Bản in sẽ bị vỡ hạt." : "Bản in có thể hơi mờ khi nhìn gần."}`;
+  }
+  return { item, dpi };
 }
 
 function resolutionItem(dpi: number | null, t: CheckTarget, isVectorOnly = false): CheckItem {
@@ -191,26 +190,26 @@ function worstOf(items: CheckItem[]): CheckStatus {
   return "pass";
 }
 
-async function checkImage(filePath: string, t: CheckTarget): Promise<{ result: FileCheckResult; preview: Buffer }> {
+async function checkImage(filePath: string, t: CheckTarget, fit: FitMode): Promise<{ result: FileCheckResult; preview: Buffer }> {
   const image = sharp(filePath, { limitInputPixels: false, failOn: "none" });
   const meta = await image.metadata();
   // Ảnh có thể chứa cờ xoay EXIF; dùng kích thước sau khi xoay
   const swap = (meta.orientation ?? 1) >= 5;
   const widthPx = (swap ? meta.height : meta.width) ?? 0;
   const heightPx = (swap ? meta.width : meta.height) ?? 0;
-  const { w, h } = orientTarget(widthPx, heightPx, t);
-  const dpi = Math.min(widthPx / ((w + 2 * t.bleedMm) / MM_PER_INCH), heightPx / ((h + 2 * t.bleedMm) / MM_PER_INCH));
+  const metaDpi = meta.density && meta.density > 1 ? Math.round(meta.density) : null;
+  const { item: resolution, dpi } = imageResolutionItem(widthPx, heightPx, metaDpi, t, fit);
   const space = meta.space === "cmyk" ? "cmyk" : meta.space === "b-w" ? "gray" : "rgb";
 
   const items: CheckItem[] = [
-    resolutionItem(dpi, t),
-    ...checkSize(widthPx, heightPx, t),
+    resolution,
+    ...checkSize(widthPx, heightPx, t, fit),
     colorItem(space),
     { key: "fonts", label: "Font chữ", status: "pass", message: "File ảnh, chữ đã nằm sẵn trong ảnh." },
   ];
   const preview = await sharp(filePath, { limitInputPixels: false, failOn: "none" })
     .rotate()
-    .resize(1400, 1400, { fit: "inside", withoutEnlargement: true })
+    .resize(2000, 2000, { fit: "inside", withoutEnlargement: true })
     .toColourspace("srgb")
     .png()
     .toBuffer();
@@ -219,14 +218,15 @@ async function checkImage(filePath: string, t: CheckTarget): Promise<{ result: F
     result: {
       items,
       worst: worstOf(items),
-      info: { format: "image", widthPx, heightPx, pages: 1, colorSpace: meta.space ?? "unknown", effectiveDpi: Math.round(dpi) },
-      target: { widthMm: t.widthMm, heightMm: t.heightMm, bleedMm: t.bleedMm },
+      fit,
+      info: { format: "image", widthPx, heightPx, pages: 1, colorSpace: meta.space ?? "unknown", effectiveDpi: Math.round(dpi), metaDpi },
+      target: { widthMm: t.widthMm, heightMm: t.heightMm, bleedMm: t.bleedMm, rotatable: t.rotatable },
     },
     preview,
   };
 }
 
-async function checkPdf(filePath: string, t: CheckTarget): Promise<{ result: FileCheckResult; preview: Buffer }> {
+async function checkPdf(filePath: string, t: CheckTarget, fit: FitMode): Promise<{ result: FileCheckResult; preview: Buffer }> {
   const { stdout: infoOut } = await run("pdfinfo", [filePath]);
   const pages = Number(/Pages:\s+(\d+)/.exec(infoOut)?.[1] ?? 1);
   const sizeMatch = /Page size:\s+([\d.]+) x ([\d.]+) pts/.exec(infoOut);
@@ -235,8 +235,7 @@ async function checkPdf(filePath: string, t: CheckTarget): Promise<{ result: Fil
   const pageHeightMm = Number(sizeMatch[2]) * PT_TO_MM;
 
   // Trang PDF sẽ được phóng/thu về khổ in; DPI thực của ảnh = DPI trong PDF / tỷ lệ phóng
-  const { w } = orientTarget(pageWidthMm, pageHeightMm, t);
-  const scale = (w + 2 * t.bleedMm) / pageWidthMm;
+  const scale = placement(pageWidthMm, pageHeightMm, t, fit).k;
 
   const { stdout: imagesOut } = await run("pdfimages", ["-f", "1", "-l", "1", "-list", filePath]);
   const images = parseWhitespaceTable(imagesOut).filter((r) => r.type === "image" && Number(r.width) > 16 && Number(r.height) > 16);
@@ -259,7 +258,7 @@ async function checkPdf(filePath: string, t: CheckTarget): Promise<{ result: Fil
 
   const items: CheckItem[] = [
     resolution,
-    ...checkSize(pageWidthMm, pageHeightMm, t),
+    ...checkSize(pageWidthMm, pageHeightMm, t, fit),
     colorItem(space),
     missing.length
       ? {
@@ -276,21 +275,22 @@ async function checkPdf(filePath: string, t: CheckTarget): Promise<{ result: Fil
   const dir = await mkdtemp(path.join(os.tmpdir(), "webin-"));
   try {
     const out = path.join(dir, "page");
-    await run("pdftoppm", ["-f", "1", "-l", "1", "-png", "-scale-to", "1400", "-singlefile", filePath, out]);
+    await run("pdftoppm", ["-f", "1", "-l", "1", "-png", "-scale-to", "2000", "-singlefile", filePath, out]);
     const preview = await readFile(out + ".png");
     return {
       result: {
         items,
         worst: worstOf(items),
+        fit,
         info: {
           format: "pdf",
-          pageWidthMm: Math.round(pageWidthMm),
-          pageHeightMm: Math.round(pageHeightMm),
+          pageWidthMm: Math.round(pageWidthMm * 10) / 10,
+          pageHeightMm: Math.round(pageHeightMm * 10) / 10,
           pages,
           colorSpace: space,
           effectiveDpi: dpi === null ? null : Math.round(dpi),
         },
-        target: { widthMm: t.widthMm, heightMm: t.heightMm, bleedMm: t.bleedMm },
+        target: { widthMm: t.widthMm, heightMm: t.heightMm, bleedMm: t.bleedMm, rotatable: t.rotatable },
       },
       preview,
     };
@@ -299,7 +299,7 @@ async function checkPdf(filePath: string, t: CheckTarget): Promise<{ result: Fil
   }
 }
 
-export async function checkPrintFile(filePath: string, mime: string, target: CheckTarget) {
-  if (mime === "application/pdf") return checkPdf(filePath, target);
-  return checkImage(filePath, target);
+export async function checkPrintFile(filePath: string, mime: string, target: CheckTarget, fit: FitMode = "cover") {
+  if (mime === "application/pdf") return checkPdf(filePath, target, fit);
+  return checkImage(filePath, target, fit);
 }

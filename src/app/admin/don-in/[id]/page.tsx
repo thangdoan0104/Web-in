@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { CheckList } from "@/components/CheckList";
 import { PrintOrderSummary } from "@/components/PrintOrderSummary";
 import { ProofViewer } from "@/components/ProofViewer";
+import { FIT_LABELS } from "@/lib/placement";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
 import { db } from "@/lib/db";
@@ -35,7 +36,10 @@ export default async function AdminPrintOrderDetail({ params }: { params: Promis
           {file && (
             <div className="card">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm">File: <b>{file.originalName}</b> · {(file.sizeBytes / 1024 / 1024).toFixed(1)} MB</p>
+                <p className="text-sm">
+                  File: <b>{file.originalName}</b> · {(file.sizeBytes / 1024 / 1024).toFixed(1)} MB
+                  {check && <> · {FIT_LABELS[check.fit ?? "cover"]}</>}
+                </p>
                 <a href={`/api/files/${file.id}/original`} className="btn-primary py-1.5">Tải file gốc</a>
               </div>
               {check && <ProofViewer mockupUrl={`/api/files/${file.id}/mockup?v=1`} previewUrl={`/api/files/${file.id}/preview?v=1`} check={check} />}

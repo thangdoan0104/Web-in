@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import sharp from "sharp";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { checkPrintFile } from "@/lib/filecheck";
 import { renderMockup } from "@/lib/mockup";
+import { placement } from "@/lib/placement";
 import { calculatePrice, parseConfig } from "@/lib/pricing";
 import { saveBuffer, storagePath } from "@/lib/storage";
 
@@ -15,6 +15,7 @@ const bodySchema = z.object({
   sizeCode: z.string(),
   customWidthMm: z.number().optional(),
   customHeightMm: z.number().optional(),
+  fit: z.enum(["cover", "contain"]).default("cover"),
 });
 
 // Bước 3: kiểm tra file theo khổ in đã chọn, tạo ảnh xem trước + mockup
@@ -46,15 +47,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       heightMm: quote.heightMm,
       bleedMm: config.bleedMm,
       dpi: config.dpi,
-    });
-    const previewMeta = await sharp(preview).metadata();
-    const fileLandscape = (previewMeta.width ?? 1) > (previewMeta.height ?? 1);
-    const targetLandscape = quote.widthMm > quote.heightMm;
-    const ratio =
-      fileLandscape !== targetLandscape && quote.widthMm !== quote.heightMm
-        ? quote.heightMm / quote.widthMm
-        : quote.widthMm / quote.heightMm;
-    const mockup = await renderMockup(config.mockup, preview, ratio);
+      rotatable: config.mockup === "flyer",
+    }, parsed.data.fit);
+    const fileW = result.info.widthPx ?? result.info.pageWidthMm ?? 1;
+    const fileH = result.info.heightPx ?? result.info.pageHeightMm ?? 1;
+    const mockup = await renderMockup(config.mockup, preview, placement(fileW, fileH, result.target, result.fit));
 
     const previewKey = `files/${id}/preview.png`;
     const mockupKey = `files/${id}/mockup.jpg`;
