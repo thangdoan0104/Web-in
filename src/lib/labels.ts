@@ -38,7 +38,6 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   REFUNDED: "Đã hoàn tiền",
 };
 
-export const DESIGN_PRODUCT_TYPES = ["Standee", "Tờ rơi", "Biển quảng cáo", "Băng rôn", "Danh thiếp", "Khác"];
 
 export function statusTone(status: string): string {
   switch (status) {

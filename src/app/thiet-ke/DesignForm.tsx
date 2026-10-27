@@ -2,11 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { uploadFile } from "@/components/upload";
-import { DESIGN_PRODUCT_TYPES } from "@/lib/labels";
+import { CUSTOM_SIZE, type ProductConfig } from "@/lib/pricing";
 import { createDesignRequest } from "./actions";
 
-export function DesignForm({ defaultPhone }: { defaultPhone: string }) {
-  const [form, setForm] = useState({ productType: DESIGN_PRODUCT_TYPES[0], sizeLabel: "", brief: "", deadline: "", budget: "", contactPhone: defaultPhone });
+type DesignProduct = { slug: string; name: string; config: ProductConfig };
+
+export function DesignForm({ defaultPhone, products }: { defaultPhone: string; products: DesignProduct[] }) {
+  const [form, setForm] = useState({ slug: products[0]?.slug ?? "", sizeCode: products[0]?.config.sizes[0].code ?? "", customW: "", customH: "", brief: "", deadline: "", budget: "", contactPhone: defaultPhone });
+  const product = products.find((p) => p.slug === form.slug);
   const [files, setFiles] = useState<{ id: string; name: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +35,10 @@ export function DesignForm({ defaultPhone }: { defaultPhone: string }) {
     setError(null);
     start(async () => {
       const result = await createDesignRequest({
-        productType: form.productType,
-        sizeLabel: form.sizeLabel,
+        productSlug: form.slug,
+        sizeCode: form.sizeCode,
+        customWidthCm: form.customW ? Number(form.customW) : undefined,
+        customHeightCm: form.customH ? Number(form.customH) : undefined,
         brief: form.brief,
         deadline: form.deadline || undefined,
         budget: form.budget ? Number(form.budget) : undefined,
@@ -46,18 +51,45 @@ export function DesignForm({ defaultPhone }: { defaultPhone: string }) {
 
   return (
     <form onSubmit={submit} className="card mt-6 space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label" htmlFor="type">Loại ấn phẩm</label>
-          <select id="type" className="input" value={form.productType} onChange={(e) => setForm({ ...form, productType: e.target.value })}>
-            {DESIGN_PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
-          </select>
+      <fieldset>
+        <legend className="label">Loại ấn phẩm</legend>
+        <div className="flex flex-wrap gap-2">
+          {products.map((p) => {
+            const on = p.slug === form.slug;
+            return (
+              <button key={p.slug} type="button" aria-pressed={on} onClick={() => setForm({ ...form, slug: p.slug, sizeCode: p.config.sizes[0].code })} className={`rounded-lg border px-4 py-2 text-sm ${on ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-gray-300 bg-white"}`}>
+                {p.name}
+              </button>
+            );
+          })}
         </div>
-        <div>
-          <label className="label" htmlFor="size">Kích thước</label>
-          <input id="size" className="input" placeholder="VD: 80 x 200 cm, A5" value={form.sizeLabel} onChange={(e) => setForm({ ...form, sizeLabel: e.target.value })} />
-        </div>
-      </div>
+      </fieldset>
+      {product && (
+        <fieldset>
+          <legend className="label">Kích thước</legend>
+          <div className="flex flex-wrap gap-2">
+            {[...product.config.sizes, ...(product.config.allowCustomSize ? [{ code: CUSTOM_SIZE, label: "Kích thước khác" }] : [])].map((s) => {
+              const on = s.code === form.sizeCode;
+              return (
+                <button key={s.code} type="button" aria-pressed={on} onClick={() => setForm({ ...form, sizeCode: s.code })} className={`rounded-lg border px-4 py-2 text-sm ${on ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-gray-300 bg-white"}`}>
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          {form.sizeCode === CUSTOM_SIZE && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input className="input w-28" type="number" min={10} aria-label="Chiều rộng (cm)" placeholder="Rộng" value={form.customW} onChange={(e) => setForm({ ...form, customW: e.target.value })} />
+              <span>x</span>
+              <input className="input w-28" type="number" min={10} aria-label="Chiều cao (cm)" placeholder="Cao" value={form.customH} onChange={(e) => setForm({ ...form, customH: e.target.value })} />
+              <span className="text-sm text-gray-500">cm (rộng x cao), tối đa {product.config.maxCustomMm / 10} cm</span>
+            </div>
+          )}
+          <p className="mt-2 text-sm text-gray-500">
+            Bản thiết kế làm đúng khổ này{product.config.bleedMm ? `, có sẵn lề xén ${product.config.bleedMm} mm` : ""}, nên duyệt xong có thể chuyển in ngay.
+          </p>
+        </fieldset>
+      )}
       <div>
         <label className="label" htmlFor="brief">Brief</label>
         <textarea
@@ -90,7 +122,7 @@ export function DesignForm({ defaultPhone }: { defaultPhone: string }) {
         </div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn-primary" disabled={pending || uploading}>{pending ? "Đang gửi..." : "Gửi yêu cầu thiết kế"}</button>
+      <button className="btn-primary" disabled={pending || uploading || !product}>{pending ? "Đang gửi..." : "Gửi yêu cầu thiết kế"}</button>
     </form>
   );
 }
