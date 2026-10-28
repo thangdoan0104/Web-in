@@ -1,7 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Đặt in online",
+  description: "Chọn sản phẩm cần in tại Thái Nguyên: standee, tờ rơi, biển quảng cáo. Tải file, xem mockup và đặt in ngay.",
+  alternates: { canonical: "/dat-in" },
+};
 
 export default async function ChooseProductPage() {
   const products = await db.product.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } });

@@ -62,3 +62,10 @@ Mockup (`src/lib/mockup.ts`) hiện được dựng bằng SVG. Khi có ảnh ch
 ## Thanh toán
 
 Đơn hiển thị mã VietQR (theo `BANK_BIN`, `BANK_ACCOUNT_NO`, `BANK_ACCOUNT_NAME`), nội dung chuyển khoản là mã đơn. Admin xác nhận tay ở trang chi tiết đơn.
+
+## SEO (thị trường Thái Nguyên)
+
+- Trang đích công khai: `/in-standee-thai-nguyen`, `/in-to-roi-thai-nguyen`, `/in-bien-quang-cao-thai-nguyen`. Nội dung (tiêu đề, giới thiệu, câu hỏi thường gặp) sửa ở `src/lib/seo/products.ts`; bảng giá lấy từ DB.
+- Thông tin doanh nghiệp (tên miền, địa chỉ, hotline, giờ mở cửa, tọa độ) đặt bằng biến môi trường `NEXT_PUBLIC_SITE_URL`, `BUSINESS_*` (xem `.env.example`). Phải khớp từng chữ với Google Business Profile.
+- `/sitemap.xml` và `/robots.txt` tự sinh; trang tài khoản, đơn hàng, quản trị bị chặn index.
+- Mã xác minh Google Search Console: `GOOGLE_SITE_VERIFICATION`.
