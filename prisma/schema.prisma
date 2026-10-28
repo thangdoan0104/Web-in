@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum PrintStatus {
+  PENDING // Chờ xác nhận
+  CONFIRMED // Đã xác nhận
+  PREPRESS // Đang chế bản
+  PRINTING // Đang in
+  FINISHING // Gia công
+  READY // Sẵn sàng giao/nhận
+  COMPLETED // Hoàn thành
+  CANCELLED // Đã hủy
+}
+
+enum DesignStatus {
+  NEW // Mới
+  BRIEF_RECEIVED // Đã nhận brief
+  DESIGNING // Đang thiết kế
+  WAITING_APPROVAL // Chờ khách duyệt
+  REVISING // Chỉnh sửa
+  APPROVED // Đã chốt
+  CANCELLED // Đã hủy
+}
+
+enum PaymentStatus {
+  UNPAID
+  DEPOSITED
+  PAID
+  REFUNDED
+}
+
+enum FileKind {
+  PRINT_ARTWORK
+  DESIGN_REFERENCE
+  DESIGN_DRAFT
+}
+
+enum DeliveryMethod {
+  PICKUP
+  SHIP
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  phone         String?
+  // Địa chỉ giao hàng mặc định, điền sẵn khi đặt in
+  address       String?
+  passwordHash  String?
+  role          Role      @default(CUSTOMER)
+  createdAt     DateTime  @default(now())
+
+  accounts       Account[]
+  printOrders    PrintOrder[]
+  designRequests DesignRequest[]
+  files          FileAsset[]
+}
+
+// Liên kết đăng nhập Google/Facebook (bảng chuẩn của Auth.js)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  // Cấu hình tùy chọn + bảng giá, xem src/lib/pricing.ts (ProductConfig)
+  config      Json
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  printOrders PrintOrder[]
+}
+
+model PrintOrder {
+  id             String         @id @default(cuid())
+  code           String         @unique
+  userId         String
+  productId      String
+  // Tùy chọn khách chọn, đã chuẩn hóa: kích thước, chất liệu, gia công, số lượng
+  options        Json
+  widthMm        Int
+  heightMm       Int
+  quantity       Int
+  price          Int
+  status         PrintStatus    @default(PENDING)
+  paymentStatus  PaymentStatus  @default(UNPAID)
+  paidAmount     Int            @default(0)
+  deliveryMethod DeliveryMethod @default(PICKUP)
+  contactName    String
+  contactPhone   String
+  address        String?
+  note           String?
+  // Khách đã bấm "Bỏ qua" các cảnh báo file
+  acceptedWarnings Boolean      @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id])
+  product Product        @relation(fields: [productId], references: [id])
+  files   FileAsset[]
+  history StatusEvent[]
+}
+
+model DesignRequest {
+  id            String        @id @default(cuid())
+  code          String        @unique
+  userId        String
+  productType   String
+  widthMm       Int?
+  heightMm      Int?
+  sizeLabel     String
+  brief         String
+  deadline      DateTime?
+  budget        Int?
+  price         Int?
+  status        DesignStatus  @default(NEW)
+  paymentStatus PaymentStatus @default(UNPAID)
+  paidAmount    Int           @default(0)
+  contactPhone  String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user    User          @relation(fields: [userId], references: [id])
+  files   FileAsset[]
+  history StatusEvent[]
+}
+
+model FileAsset {
+  id              String    @id @default(cuid())
+  ownerId         String
+  kind            FileKind
+  originalName    String
+  mime            String
+  sizeBytes       Int       @default(0)
+  storageKey      String
+  uploadedAt      DateTime?
+  // Kết quả kiểm tra file in: danh sách mục đạt/cảnh báo/lỗi, xem src/lib/filecheck.ts
+  check           Json?
+  previewKey      String?
+  mockupKey       String?
+  printOrderId    String?
+  designRequestId String?
+  createdAt       DateTime  @default(now())
+
+  owner         User           @relation(fields: [ownerId], references: [id])
+  printOrder    PrintOrder?    @relation(fields: [printOrderId], references: [id])
+  designRequest DesignRequest? @relation(fields: [designRequestId], references: [id])
+}
+
+// Dòng thời gian khách thấy: mỗi lần đổi trạng thái tiến độ hoặc thanh toán
+model StatusEvent {
+  id              String   @id @default(cuid())
+  printOrderId    String?
+  designRequestId String?
+  label           String
+  note            String?
+  byName          String?
+  createdAt       DateTime @default(now())
+
+  printOrder    PrintOrder?    @relation(fields: [printOrderId], references: [id], onDelete: Cascade)
+  designRequest DesignRequest? @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+}
